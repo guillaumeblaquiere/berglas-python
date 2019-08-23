@@ -100,8 +100,7 @@ def Resolve(project_id: str, env_var_value: str) -> str:
     """
 
     if not env_var_value.startswith(BERGLAS_PREFIX):
-        logging.info(f"No berglas prefix for the env var value {env_var_value}")
-        return
+        env_var_value = f'{BERGLAS_PREFIX}{env_var_value}'
 
     if project_id == "":
         logging.error("Project id can't be empty")
