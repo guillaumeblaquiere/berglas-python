@@ -1,8 +1,6 @@
 import base64
 import logging
-import binascii
 import os
-import io
 
 from cryptography.hazmat.backends import default_backend
 from google.cloud import storage, kms
