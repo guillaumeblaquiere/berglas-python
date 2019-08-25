@@ -1,13 +1,22 @@
 import base64
 import logging
+import binascii
 import os
+import io
 
 from cryptography.hazmat.backends import default_backend
 from google.cloud import storage, kms
 
-BERGLAS_PREFIX = "berglas://"
-METADATA_KMS_KEY = "berglas-kms-key"
-GCM_NONCE_SIZE = 12
+from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+
+BERGLAS_PREFIX      = 'berglas://'
+METADATA_KMS_KEY    = 'berglas-kms-key'
+METADATA_ID_KEY     = 'berglas-secret'
+GCM_NONCE_SIZE      = 12
+CRYPTO_KEY_LOCATION = 'global'
+CRYPTO_KEY_RING     = 'berglas'
+CRYPTO_KEY          = 'berglas-key'
+BLOB_CHUNK_SIZE     = 256 * 1024
 
 
 def Replace(project_id: str, env_var_key: str):
@@ -68,10 +77,6 @@ def _decipher_blob(dek: str, cipher_text: str) -> str:
     :exception: When deciphering failed, bad dek size or format, bad ciphering text format
     """
 
-    from cryptography.hazmat.primitives.ciphers import (
-        Cipher, algorithms, modes
-    )
-
     nonce = cipher_text[:GCM_NONCE_SIZE]
     toDecrypt = cipher_text[GCM_NONCE_SIZE:]
 
@@ -85,6 +90,31 @@ def _decipher_blob(dek: str, cipher_text: str) -> str:
 
     decrypter = cipher.decryptor()
     return decrypter.update(toDecrypt[:-16]).decode('UTF-8')
+
+
+def _cipher_blob(plaintext: bytes) -> (bytes, bytes):
+
+    # Generate a random 256-bit IV.
+    key = os.urandom(32)
+
+    # Generate a random 96-bit IV.
+    iv = os.urandom(GCM_NONCE_SIZE)
+
+    # Construct an AES-GCM Cipher object with the given key and a
+    # randomly generated IV.
+    cipher = Cipher(
+        algorithms.AES(key),
+        modes.GCM(iv),
+        backend=default_backend()
+    )
+
+    encryptor = cipher.encryptor()
+
+    # Encrypt the plaintext and get the associated ciphertext.
+    # GCM does not require padding.
+    ciphertext = encryptor.update(plaintext) + encryptor.finalize()
+
+    return (key, iv + ciphertext + encryptor.tag)
 
 
 def Resolve(project_id: str, env_var_value: str) -> str:
@@ -127,4 +157,53 @@ def Resolve(project_id: str, env_var_value: str) -> str:
     dek = kms_resp.plaintext
 
     return _decipher_blob(dek, cipher_text)
+
+
+def Encrypt(project_id: str, env_var_value: str, plaintext: str):
+    """
+    Get the plain text string [plaintext], encrypt it and store it into the bucket [env_var_value]
+
+    :param project_id: Project ID for creating the storage client.
+    :param env_var_value: Berglas reference with the pattern berglas://<bucket>/<object>
+    :param plaintext: String to be encrypted and stored
+    :exception: When the project_id is missing/empty
+    """
+
+    if not env_var_value.startswith(BERGLAS_PREFIX):
+        env_var_value = f'{BERGLAS_PREFIX}{env_var_value}'
+
+    if project_id == "":
+        logging.error("Project id can't be empty")
+        raise Exception("Project id can't be empty")
+
+    bucket_name, object = _get_bucket_object(env_var_value)
+
+    client = storage.Client(project=project_id)
+    kms_client = kms.KeyManagementServiceClient()
+
+    dek, ciphertext = _cipher_blob(plaintext.encode('utf-8'))
+
+    name = kms_client.crypto_key_path_path(project_id, CRYPTO_KEY_LOCATION, CRYPTO_KEY_RING, CRYPTO_KEY)
+
+    kms_resp = kms_client.encrypt(name, dek, additional_authenticated_data=bytes(object, 'UTF-8'))
+
+    bucket = client.get_bucket(bucket_name)
+
+    metadata = {
+        METADATA_KMS_KEY: name,
+        METADATA_ID_KEY: 1
+    }
+
+    b64_dek    = base64.b64encode(kms_resp.ciphertext).decode()
+    b64_cipher = base64.b64encode(ciphertext).decode()
+
+    encrypted_content = f'{b64_dek}:{b64_cipher}'
+
+    blob = bucket.blob(object)
+    blob.upload_from_string(encrypted_content.encode('utf-8'))
+    blob.chunk_size = BLOB_CHUNK_SIZE
+    blob.content_type = 'text/plain; charset=utf-8'
+    blob.cache_control = 'private, no-cache, no-store, no-transform, max-age=0'
+    blob.metadata = metadata
+    blob.update()
 
