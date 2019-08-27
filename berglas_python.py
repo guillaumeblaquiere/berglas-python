@@ -17,6 +17,32 @@ CRYPTO_KEY          = 'berglas-key'
 BLOB_CHUNK_SIZE     = 256 * 1024
 
 
+def _validate_env_var_prefix(env_var_value: str):
+    """
+    Check whether env_var_value starts with the pattern berglas://
+    :param env_var_value: Berglas reference with the pattern berglas://<bucket>/<object>
+    :exception: When object and/or bucket is missing (berglas pattern not respected)
+    """
+
+    if not env_var_value.startswith(BERGLAS_PREFIX):
+        log_msg = f"No berglas prefix for the env var value {env_var_value}"
+        logging.error(log_msg)
+        raise Exception(log_msg)
+
+
+def _validate_project_id(project_id: str):
+    """
+    Check whether project_id is not empty
+    :param project_id: Project ID for creating the storage client.
+    :exception: When the project_id is missing/empty
+    """
+
+    if project_id == "":
+        log_msg = "Project id can't be empty"
+        logging.error(log_msg)
+        raise Exception(log_msg)
+
+
 def Replace(project_id: str, env_var_key: str):
     """
     Replace, in the env var, the value of env var key by the deciphered value
@@ -92,7 +118,7 @@ def _decipher_blob(dek: str, cipher_text: str) -> str:
 
 def _cipher_blob(plaintext: bytes) -> (bytes, bytes):
 
-    # Generate a random 256-bit IV.
+    # Generate a random 256-bit key.
     key = os.urandom(32)
 
     # Generate a random 96-bit IV.
@@ -125,14 +151,12 @@ def Resolve(project_id: str, env_var_value: str) -> str:
     :exception: When the project_id is missing/empty
     :exception: When the env_var_value doesn't respect the pattern
     :exception: When the env_var_value defines a not existing bucket and/or object
+    :exception: When object and/or bucket is missing (pattern not respected)
     """
 
-    if not env_var_value.startswith(BERGLAS_PREFIX):
-        env_var_value = f'{BERGLAS_PREFIX}{env_var_value}'
+    _validate_env_var_prefix(env_var_value)
 
-    if project_id == "":
-        logging.error("Project id can't be empty")
-        raise Exception("Project id can't be empty")
+    _validate_project_id(project_id)
 
     client = storage.Client(project=project_id)
     kms_client = kms.KeyManagementServiceClient()
@@ -165,14 +189,13 @@ def Encrypt(project_id: str, env_var_value: str, plaintext: str):
     :param env_var_value: Berglas reference with the pattern berglas://<bucket>/<object>
     :param plaintext: String to be encrypted and stored
     :exception: When the project_id is missing/empty
+    :exception: When object and/or bucket is missing (pattern not respected)
     """
 
-    if not env_var_value.startswith(BERGLAS_PREFIX):
-        env_var_value = f'{BERGLAS_PREFIX}{env_var_value}'
+    _validate_env_var_prefix(env_var_value)
 
-    if project_id == "":
-        logging.error("Project id can't be empty")
-        raise Exception("Project id can't be empty")
+    _validate_project_id(project_id)
+
 
     bucket_name, object = _get_bucket_object(env_var_value)
 
