@@ -99,16 +99,16 @@ def _get_bucket_object(env_var_value: str) -> (str, str):
 
     without_prefix = env_var_value[len(BERGLAS_PREFIX):]
     if without_prefix == "":
-        logging.error(f"No bucket and object defined in {env_var_value}")
-        raise Exception(f"No bucket and object defined in {env_var_value}")
+        log_msg = f"No bucket and object defined in {env_var_value}"
+        logging.error(log_msg)
+        raise Exception(log_msg)
 
     splitted = without_prefix.split("/", 2)
 
     if splitted[1] == "":
-        logging.error(f"No object defined in {env_var_value}")
-        raise Exception(f"No object defined in {env_var_value}")
-
-    return splitted[0], splitted[1]
+        log_msg = f"No object defined in {env_var_value}"
+        logging.error(log_msg)
+        raise Exception(log_msg)
 
 
 def _decipher_blob(dek: str, cipher_text: str) -> str:
