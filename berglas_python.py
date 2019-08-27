@@ -5,16 +5,22 @@ import os
 from cryptography.hazmat.backends import default_backend
 from google.cloud import storage, kms
 
-from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+from cryptography.hazmat.primitives.ciphers import (
+    Cipher, algorithms, modes
+)
 
-BERGLAS_PREFIX      = 'berglas://'
-METADATA_KMS_KEY    = 'berglas-kms-key'
-METADATA_ID_KEY     = 'berglas-secret'
-GCM_NONCE_SIZE      = 12
-CRYPTO_KEY_LOCATION = 'global'
-CRYPTO_KEY_RING     = 'berglas'
-CRYPTO_KEY          = 'berglas-key'
-BLOB_CHUNK_SIZE     = 256 * 1024
+BERGLAS_PREFIX         = "berglas://"
+METADATA_KMS_KEY       = "berglas-kms-key"
+METADATA_ID_KEY        = "berglas-secret"
+METADATA_CONTENT_TYPE  = "text/plain; charset=utf-8"
+METADATA_CACHE_CONTROL = "private, no-cache, no-store, no-transform, max-age=0"
+BLOB_CHUNK_SIZE        = 256 * 1024
+GCM_NONCE_SIZE         = 12
+ADD_DATA_SIZE          = 16
+
+LOCATION               = "global"
+KEY_RING               = "berglas"
+CRYPTO_KEY             = "berglas-key"
 
 
 def str2b(s: str) -> bytes:
@@ -110,6 +116,8 @@ def _get_bucket_object(env_var_value: str) -> (str, str):
         logging.error(log_msg)
         raise Exception(log_msg)
 
+    return splitted[0], splitted[1]
+
 
 def _decipher_blob(dek: str, cipher_text: str) -> str:
     """
@@ -122,7 +130,7 @@ def _decipher_blob(dek: str, cipher_text: str) -> str:
     """
 
     nonce = cipher_text[:GCM_NONCE_SIZE]
-    toDecrypt = cipher_text[GCM_NONCE_SIZE:]
+    to_decrypt = cipher_text[GCM_NONCE_SIZE:]
 
     algo = algorithms.AES(dek)
 
@@ -133,7 +141,7 @@ def _decipher_blob(dek: str, cipher_text: str) -> str:
     )
 
     decrypter = cipher.decryptor()
-    return b2str(decrypter.update(toDecrypt[:-16]))
+    return b2str(decrypter.update(to_decrypt[:-ADD_DATA_SIZE]))
 
 
 def _envelope_encrypt(plaintext: bytes) -> (bytes, bytes):
@@ -165,6 +173,10 @@ def _envelope_encrypt(plaintext: bytes) -> (bytes, bytes):
     encrypted_text = encryptor.update(plaintext) + encryptor.finalize()
 
     # Encrypt the ciphertext with the DEK
+    # Masking the ciphertext by adding the initialization vector (12 chars) + ciphered text +
+    # and the encryptor_tag as additional data (16 chars).
+    # The encryptor_tag will be discarded by Berglas as it auto places this field with a nil value.
+    # But it is required for adding 16 chars at the end of the ciphered text
     ciphertext = iv + encrypted_text + encryptor.tag
 
     return (key, ciphertext)
@@ -187,13 +199,13 @@ def Resolve(project_id: str, env_var_value: str) -> str:
 
     _validate_project_id(project_id)
 
-    client = storage.Client(project=project_id)
+    gcs_client = storage.Client(project=project_id)
     kms_client = kms.KeyManagementServiceClient()
 
     bucket, object_name = _get_bucket_object(env_var_value)
 
     # Get the blob in the storage
-    blob = client.bucket(bucket).get_blob(object_name)
+    blob = gcs_client.bucket(bucket).get_blob(object_name)
     # Get the key reference in metadata
     key = blob.metadata[METADATA_KMS_KEY]
     # Get the blob ciphered content
@@ -210,13 +222,17 @@ def Resolve(project_id: str, env_var_value: str) -> str:
     return _decipher_blob(dek, cipher_text)
 
 
-def Encrypt(project_id: str, env_var_value: str, plaintext: str):
+def Encrypt(project_id: str, env_var_value: str, plaintext: str,
+            location: str = LOCATION, key_ring: str = KEY_RING, crypto_key: str = CRYPTO_KEY):
     """
     Get the plain text string [plaintext], encrypt it and store it into the bucket [env_var_value]
 
     :param project_id: Project ID for creating the storage client.
     :param env_var_value: Berglas reference with the pattern berglas://<bucket>/<object_name>
     :param plaintext: String to be encrypted and stored
+    :param location: Keyring location. Default: global
+    :param key_ring: KMS keyring name to be used to encrypt your secrets
+    :param crypto_key: Cryptographic key name to be used to encrypt your secrets
     :exception: When the project_id is missing/empty
     :exception: When object_name and/or bucket is missing (pattern not respected)
     """
@@ -228,16 +244,16 @@ def Encrypt(project_id: str, env_var_value: str, plaintext: str):
 
     bucket_name, object_name = _get_bucket_object(env_var_value)
 
-    client = storage.Client(project=project_id)
+    gcs_client = storage.Client(project=project_id)
     kms_client = kms.KeyManagementServiceClient()
 
     dek, ciphertext = _envelope_encrypt(str2b(plaintext))
 
-    name = kms_client.crypto_key_path_path(project_id, CRYPTO_KEY_LOCATION, CRYPTO_KEY_RING, CRYPTO_KEY)
+    name = kms_client.crypto_key_path_path(project_id, location, key_ring, crypto_key)
 
     kms_resp = kms_client.encrypt(name, dek, additional_authenticated_data=str2b(object_name))
 
-    bucket = client.get_bucket(bucket_name)
+    bucket = gcs_client.get_bucket(bucket_name)
 
     metadata = {
         METADATA_KMS_KEY: name,
@@ -249,11 +265,11 @@ def Encrypt(project_id: str, env_var_value: str, plaintext: str):
 
     encrypted_content = f'{b64_dek}:{b64_cipher}'
 
-    blob = bucket.blob(bucket_name)
+    blob = bucket.blob(object_name)
     blob.upload_from_string(str2b(encrypted_content))
     blob.chunk_size = BLOB_CHUNK_SIZE
-    blob.content_type = 'text/plain; charset=utf-8'
-    blob.cache_control = 'private, no-cache, no-store, no-transform, max-age=0'
+    blob.content_type = METADATA_CONTENT_TYPE
+    blob.cache_control = METADATA_CACHE_CONTROL
     blob.metadata = metadata
     blob.update()
 
