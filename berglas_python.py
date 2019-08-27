@@ -70,11 +70,11 @@ def Replace(project_id: str, env_var_key: str):
 
 def _get_bucket_object(env_var_value: str) -> (str, str):
     """
-    Split the env_var_value into bucket and object
+    Split the env_var_value into bucket and object name
 
-    :param env_var_value: should respect this pattern berglas://<bucket>/<object>
-    :return: the bucket and the object
-    :exception: When object and/or bucket is missing (pattern not respected)
+    :param env_var_value: should respect this pattern berglas://<bucket>/<object_name>
+    :return: the bucket and the object name
+    :exception: When object_name and/or bucket is missing (pattern not respected)
     """
 
     without_prefix = env_var_value[len(BERGLAS_PREFIX):]
@@ -146,12 +146,12 @@ def Resolve(project_id: str, env_var_value: str) -> str:
     Get the object in the bucket (define in the env_var_value) and decipher it
 
     :param project_id: Project ID for creating the storage client.
-    :param env_var_value: Berglas reference with the pattern berglas://<bucket>/<object>
+    :param env_var_value: Berglas reference with the pattern berglas://<bucket>/<object_name>
     :return: the plaintext value of the deciphered reference.
     :exception: When the project_id is missing/empty
     :exception: When the env_var_value doesn't respect the pattern
-    :exception: When the env_var_value defines a not existing bucket and/or object
-    :exception: When object and/or bucket is missing (pattern not respected)
+    :exception: When the env_var_value defines a not existing bucket and/or object_name
+    :exception: When object_name and/or bucket is missing (pattern not respected)
     """
 
     _validate_env_var_prefix(env_var_value)
@@ -161,10 +161,10 @@ def Resolve(project_id: str, env_var_value: str) -> str:
     client = storage.Client(project=project_id)
     kms_client = kms.KeyManagementServiceClient()
 
-    bucket, object = _get_bucket_object(env_var_value)
+    bucket, object_name = _get_bucket_object(env_var_value)
 
     # Get the blob in the storage
-    blob = client.bucket(bucket).get_blob(object)
+    blob = client.bucket(bucket).get_blob(object_name)
     # Get the key reference in metadata
     key = blob.metadata[METADATA_KMS_KEY]
     # Get the blob ciphered content
@@ -175,7 +175,7 @@ def Resolve(project_id: str, env_var_value: str) -> str:
     cipher_text = base64.b64decode(content_splited[1])
 
     # Decrypt the encoded Data Encryption Key (DEK)
-    kms_resp = kms_client.decrypt(name=key, ciphertext=enc_dek, additional_authenticated_data=bytes(object, 'UTF-8'))
+    kms_resp = kms_client.decrypt(name=key, ciphertext=enc_dek, additional_authenticated_data=bytes(object_name, 'UTF-8'))
     dek = kms_resp.plaintext
 
     return _decipher_blob(dek, cipher_text)
@@ -186,10 +186,10 @@ def Encrypt(project_id: str, env_var_value: str, plaintext: str):
     Get the plain text string [plaintext], encrypt it and store it into the bucket [env_var_value]
 
     :param project_id: Project ID for creating the storage client.
-    :param env_var_value: Berglas reference with the pattern berglas://<bucket>/<object>
+    :param env_var_value: Berglas reference with the pattern berglas://<bucket>/<object_name>
     :param plaintext: String to be encrypted and stored
     :exception: When the project_id is missing/empty
-    :exception: When object and/or bucket is missing (pattern not respected)
+    :exception: When object_name and/or bucket is missing (pattern not respected)
     """
 
     _validate_env_var_prefix(env_var_value)
@@ -197,7 +197,7 @@ def Encrypt(project_id: str, env_var_value: str, plaintext: str):
     _validate_project_id(project_id)
 
 
-    bucket_name, object = _get_bucket_object(env_var_value)
+    bucket_name, object_name = _get_bucket_object(env_var_value)
 
     client = storage.Client(project=project_id)
     kms_client = kms.KeyManagementServiceClient()
@@ -206,7 +206,7 @@ def Encrypt(project_id: str, env_var_value: str, plaintext: str):
 
     name = kms_client.crypto_key_path_path(project_id, CRYPTO_KEY_LOCATION, CRYPTO_KEY_RING, CRYPTO_KEY)
 
-    kms_resp = kms_client.encrypt(name, dek, additional_authenticated_data=bytes(object, 'UTF-8'))
+    kms_resp = kms_client.encrypt(name, dek, additional_authenticated_data=bytes(object_name, 'UTF-8'))
 
     bucket = client.get_bucket(bucket_name)
 
@@ -220,7 +220,7 @@ def Encrypt(project_id: str, env_var_value: str, plaintext: str):
 
     encrypted_content = f'{b64_dek}:{b64_cipher}'
 
-    blob = bucket.blob(object)
+    blob = bucket.blob(bucket_name)
     blob.upload_from_string(encrypted_content.encode('utf-8'))
     blob.chunk_size = BLOB_CHUNK_SIZE
     blob.content_type = 'text/plain; charset=utf-8'
