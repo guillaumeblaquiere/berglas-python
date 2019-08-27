@@ -17,6 +17,26 @@ CRYPTO_KEY          = 'berglas-key'
 BLOB_CHUNK_SIZE     = 256 * 1024
 
 
+def str2b(s: str) -> bytes:
+    """
+    Converts string to bytes encoding it as UTF-8
+
+    :param s: String to be converted and encoded
+    :return: a bytes object encoded
+    """
+    return bytes(s, "UTF-8")
+
+
+def b2str(bystr: str) -> str:
+    """
+    Converts bytes to string decoding it from UTF-8
+
+    :param s: bytes to be converted and decoded
+    :return: a string decoded
+    """
+    return bystr.decode("UTF-8")
+
+
 def _validate_env_var_prefix(env_var_value: str):
     """
     Check whether env_var_value starts with the pattern berglas://
@@ -113,10 +133,10 @@ def _decipher_blob(dek: str, cipher_text: str) -> str:
     )
 
     decrypter = cipher.decryptor()
-    return decrypter.update(toDecrypt[:-16]).decode('UTF-8')
+    return b2str(decrypter.update(toDecrypt[:-16]))
 
 
-def envelope_encrypt(plaintext: bytes) -> (bytes, bytes):
+def _envelope_encrypt(plaintext: bytes) -> (bytes, bytes):
     """
     Generates a unique DEK and encrypts the plaintext with the given key.
 
@@ -177,14 +197,14 @@ def Resolve(project_id: str, env_var_value: str) -> str:
     # Get the key reference in metadata
     key = blob.metadata[METADATA_KMS_KEY]
     # Get the blob ciphered content
-    content = blob.download_as_string().decode('UTF-8')
+    content = b2str(blob.download_as_string())
 
     content_splited = content.split(":", 2)
     enc_dek = base64.b64decode(content_splited[0])
     cipher_text = base64.b64decode(content_splited[1])
 
     # Decrypt the encoded Data Encryption Key (DEK)
-    kms_resp = kms_client.decrypt(name=key, ciphertext=enc_dek, additional_authenticated_data=bytes(object_name, 'UTF-8'))
+    kms_resp = kms_client.decrypt(name=key, ciphertext=enc_dek, additional_authenticated_data=str2b(object_name))
     dek = kms_resp.plaintext
 
     return _decipher_blob(dek, cipher_text)
@@ -211,11 +231,11 @@ def Encrypt(project_id: str, env_var_value: str, plaintext: str):
     client = storage.Client(project=project_id)
     kms_client = kms.KeyManagementServiceClient()
 
-    dek, ciphertext = envelope_encrypt(plaintext.encode('utf-8'))
+    dek, ciphertext = _envelope_encrypt(str2b(plaintext))
 
     name = kms_client.crypto_key_path_path(project_id, CRYPTO_KEY_LOCATION, CRYPTO_KEY_RING, CRYPTO_KEY)
 
-    kms_resp = kms_client.encrypt(name, dek, additional_authenticated_data=bytes(object_name, 'UTF-8'))
+    kms_resp = kms_client.encrypt(name, dek, additional_authenticated_data=str2b(object_name))
 
     bucket = client.get_bucket(bucket_name)
 
@@ -224,13 +244,13 @@ def Encrypt(project_id: str, env_var_value: str, plaintext: str):
         METADATA_ID_KEY: 1
     }
 
-    b64_dek    = base64.b64encode(kms_resp.ciphertext).decode()
-    b64_cipher = base64.b64encode(ciphertext).decode()
+    b64_dek    = b2str(base64.b64encode(kms_resp.ciphertext))
+    b64_cipher = b2str(base64.b64encode(ciphertext))
 
     encrypted_content = f'{b64_dek}:{b64_cipher}'
 
     blob = bucket.blob(bucket_name)
-    blob.upload_from_string(encrypted_content.encode('utf-8'))
+    blob.upload_from_string(str2b(encrypted_content))
     blob.chunk_size = BLOB_CHUNK_SIZE
     blob.content_type = 'text/plain; charset=utf-8'
     blob.cache_control = 'private, no-cache, no-store, no-transform, max-age=0'
