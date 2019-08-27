@@ -116,7 +116,13 @@ def _decipher_blob(dek: str, cipher_text: str) -> str:
     return decrypter.update(toDecrypt[:-16]).decode('UTF-8')
 
 
-def _cipher_blob(plaintext: bytes) -> (bytes, bytes):
+def envelope_encrypt(plaintext: bytes) -> (bytes, bytes):
+    """
+    Generates a unique DEK and encrypts the plaintext with the given key.
+
+    :param plaintext: String to be encrypted
+    :return: The encryption key and resulting ciphertext
+    """
 
     # Generate a random 256-bit key.
     key = os.urandom(32)
@@ -136,9 +142,12 @@ def _cipher_blob(plaintext: bytes) -> (bytes, bytes):
 
     # Encrypt the plaintext and get the associated ciphertext.
     # GCM does not require padding.
-    ciphertext = encryptor.update(plaintext) + encryptor.finalize()
+    encrypted_text = encryptor.update(plaintext) + encryptor.finalize()
 
-    return (key, iv + ciphertext + encryptor.tag)
+    # Encrypt the ciphertext with the DEK
+    ciphertext = iv + encrypted_text + encryptor.tag
+
+    return (key, ciphertext)
 
 
 def Resolve(project_id: str, env_var_value: str) -> str:
@@ -202,7 +211,7 @@ def Encrypt(project_id: str, env_var_value: str, plaintext: str):
     client = storage.Client(project=project_id)
     kms_client = kms.KeyManagementServiceClient()
 
-    dek, ciphertext = _cipher_blob(plaintext.encode('utf-8'))
+    dek, ciphertext = envelope_encrypt(plaintext.encode('utf-8'))
 
     name = kms_client.crypto_key_path_path(project_id, CRYPTO_KEY_LOCATION, CRYPTO_KEY_RING, CRYPTO_KEY)
 
