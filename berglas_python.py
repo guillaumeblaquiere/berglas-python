@@ -16,7 +16,8 @@ METADATA_CONTENT_TYPE  = "text/plain; charset=utf-8"
 METADATA_CACHE_CONTROL = "private, no-cache, no-store, no-transform, max-age=0"
 BLOB_CHUNK_SIZE        = 256 * 1024
 GCM_NONCE_SIZE         = 12
-ADD_DATA_SIZE          = 16
+GCM_TAG_SIZE           = 16
+DATA_ENCRYPTION_SIZE   = 32
 
 LOCATION               = "global"
 KEY_RING               = "berglas"
@@ -119,50 +120,51 @@ def _get_bucket_object(env_var_value: str) -> (str, str):
     return splitted[0], splitted[1]
 
 
-def _decipher_blob(dek: str, cipher_text: str) -> str:
+def _envelope_decrypt(data_encryption_key: str, data: str) -> str:
     """
     Decipher the cipher text with the dek. Use aes GCM algorithm
 
-    :param dek: Data Encryption Key
-    :param cipher_text: Content to decrypt with aes GCM cipher
+    :param data_encryption_key: Data Encryption Key
+    :param data: Content to decrypt with aes GCM cipher
     :return: deciphered plain text
     :exception: When deciphering failed, bad dek size or format, bad ciphering text format
     """
 
-    nonce = cipher_text[:GCM_NONCE_SIZE]
-    to_decrypt = cipher_text[GCM_NONCE_SIZE:]
+    nonce      = data[:GCM_NONCE_SIZE]
+    ciphertext = data[GCM_NONCE_SIZE:-GCM_TAG_SIZE]
+    tag        = data[-GCM_TAG_SIZE:]
 
-    algo = algorithms.AES(dek)
+    algo = algorithms.AES(data_encryption_key)
 
     cipher = Cipher(
         algo,
-        modes.GCM(nonce),
+        modes.GCM(nonce, tag),
         backend=default_backend()
     )
 
     decrypter = cipher.decryptor()
-    return b2str(decrypter.update(to_decrypt[:-ADD_DATA_SIZE]))
+    return b2str(decrypter.update(ciphertext))
 
 
 def _envelope_encrypt(plaintext: bytes) -> (bytes, bytes):
     """
-    Generates a unique DEK and encrypts the plaintext with the given key.
+    Generates a unique Data Encryption Key and encrypts the plaintext with the given key.
 
     :param plaintext: String to be encrypted
     :return: The encryption key and resulting ciphertext
     """
 
     # Generate a random 256-bit key.
-    key = os.urandom(32)
+    data_encryption_key = os.urandom(DATA_ENCRYPTION_SIZE)
 
     # Generate a random 96-bit IV.
-    iv = os.urandom(GCM_NONCE_SIZE)
+    initialization_vector = os.urandom(GCM_NONCE_SIZE)
 
     # Construct an AES-GCM Cipher object with the given key and a
     # randomly generated IV.
     cipher = Cipher(
-        algorithms.AES(key),
-        modes.GCM(iv),
+        algorithms.AES(data_encryption_key),
+        modes.GCM(initialization_vector),
         backend=default_backend()
     )
 
@@ -170,16 +172,16 @@ def _envelope_encrypt(plaintext: bytes) -> (bytes, bytes):
 
     # Encrypt the plaintext and get the associated ciphertext.
     # GCM does not require padding.
-    encrypted_text = encryptor.update(plaintext) + encryptor.finalize()
+    ciphertext = encryptor.update(plaintext) + encryptor.finalize()
 
     # Encrypt the ciphertext with the DEK
     # Masking the ciphertext by adding the initialization vector (12 chars) + ciphered text +
     # and the encryptor_tag as additional data (16 chars).
     # The encryptor_tag will be discarded by Berglas as it auto places this field with a nil value.
     # But it is required for adding 16 chars at the end of the ciphered text
-    ciphertext = iv + encrypted_text + encryptor.tag
+    data = initialization_vector + ciphertext + encryptor.tag
 
-    return (key, ciphertext)
+    return (data_encryption_key, data)
 
 
 def Resolve(project_id: str, env_var_value: str) -> str:
@@ -207,19 +209,20 @@ def Resolve(project_id: str, env_var_value: str) -> str:
     # Get the blob in the storage
     blob = gcs_client.bucket(bucket).get_blob(object_name)
     # Get the key reference in metadata
-    key = blob.metadata[METADATA_KMS_KEY]
+    crypto_key_path = blob.metadata[METADATA_KMS_KEY]
     # Get the blob ciphered content
-    content = b2str(blob.download_as_string())
+    blob_content = b2str(blob.download_as_string())
 
-    content_splited = content.split(":", 2)
-    enc_dek = base64.b64decode(content_splited[0])
-    cipher_text = base64.b64decode(content_splited[1])
+    blob_content_splited = blob_content.split(":", 2)
+    decoded_data_encryption_key  = base64.b64decode(blob_content_splited[0])
+    decoded_data                 = base64.b64decode(blob_content_splited[1])
 
     # Decrypt the encoded Data Encryption Key (DEK)
-    kms_resp = kms_client.decrypt(name=key, ciphertext=enc_dek, additional_authenticated_data=str2b(object_name))
-    dek = kms_resp.plaintext
+    kms_resp = kms_client.decrypt(name=crypto_key_path, ciphertext=decoded_data_encryption_key,
+                                  additional_authenticated_data=str2b(object_name))
+    data_encryption_key = kms_resp.plaintext
 
-    return _decipher_blob(dek, cipher_text)
+    return _envelope_decrypt(data_encryption_key, decoded_data)
 
 
 def Encrypt(project_id: str, env_var_value: str, plaintext: str,
@@ -247,26 +250,27 @@ def Encrypt(project_id: str, env_var_value: str, plaintext: str,
     gcs_client = storage.Client(project=project_id)
     kms_client = kms.KeyManagementServiceClient()
 
-    dek, ciphertext = _envelope_encrypt(str2b(plaintext))
+    data_encryption_key, ciphertext = _envelope_encrypt(str2b(plaintext))
 
-    name = kms_client.crypto_key_path_path(project_id, location, key_ring, crypto_key)
+    crypto_key_path = kms_client.crypto_key_path_path(project_id, location, key_ring, crypto_key)
 
-    kms_resp = kms_client.encrypt(name, dek, additional_authenticated_data=str2b(object_name))
+    kms_resp = kms_client.encrypt(crypto_key_path, data_encryption_key,
+                                  additional_authenticated_data=str2b(object_name))
 
     bucket = gcs_client.get_bucket(bucket_name)
 
     metadata = {
-        METADATA_KMS_KEY: name,
+        METADATA_KMS_KEY: crypto_key_path,
         METADATA_ID_KEY: 1
     }
 
-    b64_dek    = b2str(base64.b64encode(kms_resp.ciphertext))
-    b64_cipher = b2str(base64.b64encode(ciphertext))
+    encoded_data_encryption_key = b2str(base64.b64encode(kms_resp.ciphertext))
+    encoded_ciphertext          = b2str(base64.b64encode(ciphertext))
 
-    encrypted_content = f'{b64_dek}:{b64_cipher}'
+    blob_content = f'{encoded_data_encryption_key}:{encoded_ciphertext}'
 
     blob = bucket.blob(object_name)
-    blob.upload_from_string(str2b(encrypted_content))
+    blob.upload_from_string(str2b(blob_content))
     blob.chunk_size = BLOB_CHUNK_SIZE
     blob.content_type = METADATA_CONTENT_TYPE
     blob.cache_control = METADATA_CACHE_CONTROL
