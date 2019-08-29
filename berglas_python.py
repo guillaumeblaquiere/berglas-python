@@ -9,19 +9,19 @@ from cryptography.hazmat.primitives.ciphers import (
     Cipher, algorithms, modes
 )
 
-BERGLAS_PREFIX         = "berglas://"
-METADATA_KMS_KEY       = "berglas-kms-key"
-METADATA_ID_KEY        = "berglas-secret"
-METADATA_CONTENT_TYPE  = "text/plain; charset=utf-8"
-METADATA_CACHE_CONTROL = "private, no-cache, no-store, no-transform, max-age=0"
-BLOB_CHUNK_SIZE        = 256 * 1024
-GCM_NONCE_SIZE         = 12
-GCM_TAG_SIZE           = 16
-DATA_ENCRYPTION_SIZE   = 32
+BERGLAS_PREFIX           = "berglas://"
+METADATA_KMS_KEY         = "berglas-kms-key"
+METADATA_ID_KEY          = "berglas-secret"
+METADATA_CONTENT_TYPE    = "text/plain; charset=utf-8"
+METADATA_CACHE_CONTROL   = "private, no-cache, no-store, no-transform, max-age=0"
+BLOB_CHUNK_SIZE          = 256 * 1024
+GCM_NONCE_SIZE           = 12
+GCM_TAG_SIZE             = 16
+DATA_ENCRYPTION_KEY_SIZE = 32
 
-LOCATION               = "global"
-KEY_RING               = "berglas"
-CRYPTO_KEY             = "berglas-key"
+LOCATION                 = "global"
+KEY_RING                 = "berglas"
+CRYPTO_KEY               = "berglas-key"
 
 
 def str2b(s: str) -> bytes:

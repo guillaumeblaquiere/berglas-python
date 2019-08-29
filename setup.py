@@ -1,7 +1,7 @@
 from setuptools import setup, find_packages
 
 setup(name='berglas_python',
-      version='0.2.6',
+      version='0.3.0',
       url='https://github.com/guillaumeblaquiere/berglas-python',
       license='Apache 2.0',
       author='Guillaume Blaquiere',
