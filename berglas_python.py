@@ -155,7 +155,7 @@ def _envelope_encrypt(plaintext: bytes) -> (bytes, bytes):
     """
 
     # Generate a random 256-bit key.
-    data_encryption_key = os.urandom(DATA_ENCRYPTION_SIZE)
+    data_encryption_key = os.urandom(DATA_ENCRYPTION_KEY_SIZE)
 
     # Generate a random 96-bit IV.
     initialization_vector = os.urandom(GCM_NONCE_SIZE)
