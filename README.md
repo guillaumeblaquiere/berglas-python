@@ -1,6 +1,6 @@
 # Overview
 
-Python library help to use [Berglas](https://github.com/GoogleCloudPlatform/berglas) and to decrypt the secrets stored in a GCP storage.
+Python library help to use [Berglas](https://github.com/GoogleCloudPlatform/berglas), to encrypt and to decrypt the secrets stored in a GCP storage.
 
 See [Berglas](https://github.com/GoogleCloudPlatform/berglas) for details about bucket bootstrapping and secret creation
 
@@ -15,6 +15,7 @@ Then use it in the same way as [Go library](https://github.com/GoogleCloudPlatfo
 
 The library berglas_python library is able to:
 
+- Encrypt and upload the secrets
 - Download and decrypt any secrets that match the [Berglas environment variable reference syntax](https://github.com/GoogleCloudPlatform/berglas/blob/master/doc/reference-syntax.md)
 - Replace the value for the environment variable with the decrypted secret
 
@@ -39,6 +40,9 @@ my_secret = os.environ.get("MY-SECRET")
 plaintext = berglas.Resolve(project_id, my_secret)
 os.environ.unsetenv("MY-SECRET")
 os.environ.setdefault("MY-SECRET", plaintext)
+
+# This is lower-level API encrypts the plaintext string and uploads the blob
+berglas.Encrypt(project_id, 'MY-BUCKET/MY-SECRET-FILE', 'STRING-TO-ENCRYPT')
 ```
 
 # License

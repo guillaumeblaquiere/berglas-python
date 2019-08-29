@@ -17,3 +17,7 @@ my_secret = os.environ.get("MY-SECRET")
 plaintext = berglas.Resolve(project_id, my_secret)
 os.environ.unsetenv("MY-SECRET")
 os.environ.setdefault("MY-SECRET", plaintext)
+
+
+# This is lower-level API encrypts the plaintext string and uploads the blob
+berglas.Encrypt(project_id, 'MY-BUCKET/MY-SECRET-FILE', 'STRING-TO-ENCRYPT')
