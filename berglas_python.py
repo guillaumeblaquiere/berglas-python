@@ -4,6 +4,7 @@ import os
 
 from cryptography.hazmat.backends import default_backend
 from google.cloud import storage, kms
+from google.api_core import iam
 
 from cryptography.hazmat.primitives.ciphers import (
     Cipher, algorithms, modes
@@ -68,6 +69,25 @@ def _validate_project_id(project_id: str):
         log_msg = "Project id can't be empty"
         logging.error(log_msg)
         raise Exception(log_msg)
+
+
+
+def copy_blob_iam_policy(blob):
+    """
+    Copy any IAM permissions from the old object over to the new object.
+
+    :param blob: the blob object
+    :return: na google.api_core.iam.Policy containing a copy of the current IAM policies
+    """
+
+    new_policy = iam.Policy()
+    blob_iam_policies = blob.get_iam_policy()
+
+    for role_name, entity in blob_iam_policies.items():
+        new_policy[role_name] = list(entity)
+
+    return new_policy
+
 
 
 def Replace(project_id: str, env_var_key: str):
@@ -270,7 +290,12 @@ def Encrypt(project_id: str, env_var_value: str, plaintext: str,
     blob_content = f'{encoded_data_encryption_key}:{encoded_ciphertext}'
 
     blob = bucket.blob(object_name)
+    blob_iam_policy = copy_blob_iam_policy(blob)
+
     blob.upload_from_string(str2b(blob_content))
+
+    blob.set_iam_policy(blob_iam_policy)
+
     blob.chunk_size = BLOB_CHUNK_SIZE
     blob.content_type = METADATA_CONTENT_TYPE
     blob.cache_control = METADATA_CACHE_CONTROL
