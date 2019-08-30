@@ -260,6 +260,10 @@ def Encrypt(project_id: str, env_var_value: str, plaintext: str,
     :exception: When object_name and/or bucket is missing (pattern not respected)
     """
 
+    # It's a flag to ensure the IAM policy for the blob object will be updated only
+    # if the file exists.
+    blob_iam_policy = None
+
     _validate_env_var_prefix(env_var_value)
 
     _validate_project_id(project_id)
@@ -290,11 +294,16 @@ def Encrypt(project_id: str, env_var_value: str, plaintext: str,
     blob_content = f'{encoded_data_encryption_key}:{encoded_ciphertext}'
 
     blob = bucket.blob(object_name)
-    blob_iam_policy = copy_blob_iam_policy(blob)
+
+    # If the object doesn't exist we don't need to copy the IAM policy
+    if blob.exists():
+        blob_iam_policy = copy_blob_iam_policy(blob)
 
     blob.upload_from_string(str2b(blob_content))
 
-    blob.set_iam_policy(blob_iam_policy)
+    # If the object doesn't exist we don't need to copy the IAM policy
+    if blob_iam_policy is not None:
+        blob.set_iam_policy(blob_iam_policy)
 
     blob.chunk_size = BLOB_CHUNK_SIZE
     blob.content_type = METADATA_CONTENT_TYPE
