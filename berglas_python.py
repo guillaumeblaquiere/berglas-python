@@ -71,7 +71,6 @@ def _validate_project_id(project_id: str):
         raise Exception(log_msg)
 
 
-
 def copy_blob_iam_policy(blob):
     """
     Copy any IAM permissions from the old object over to the new object.
@@ -87,7 +86,6 @@ def copy_blob_iam_policy(blob):
         new_policy[role_name] = list(entity)
 
     return new_policy
-
 
 
 def Replace(project_id: str, env_var_key: str):
@@ -130,7 +128,7 @@ def _get_bucket_object(env_var_value: str) -> (str, str):
         logging.error(log_msg)
         raise Exception(log_msg)
 
-    splitted = without_prefix.split("/", 2)
+    splitted = without_prefix.split("/", 1)
 
     if splitted[1] == "":
         log_msg = f"No object defined in {env_var_value}"
