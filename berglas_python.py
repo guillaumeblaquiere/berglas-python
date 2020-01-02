@@ -109,8 +109,7 @@ def Replace(project_id: str, env_var_key: str):
 
     plaintext = Resolve(project_id, env_var_value)
 
-    os.environ.unsetenv(env_var_key)
-    os.environ.setdefault(env_var_key, plaintext)
+    os.environ[env_var_key] = plaintext
 
 
 def _get_bucket_object(env_var_value: str) -> (str, str):
