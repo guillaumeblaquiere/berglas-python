@@ -105,12 +105,11 @@ def Replace(project_id: str, env_var_key: str):
     env_var_value: str = os.environ.get(env_var_key)
     if env_var_value == "":
         logging.info(f"No value for the env var key {env_var_key}")
-    return
+        return
 
     plaintext = Resolve(project_id, env_var_value)
 
-    os.environ.unsetenv(env_var_key)
-    os.environ.setdefault(env_var_key, plaintext)
+    os.environ[env_var_key] = plaintext
 
 
 def _get_bucket_object(env_var_value: str) -> (str, str):
