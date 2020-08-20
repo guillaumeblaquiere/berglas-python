@@ -1,4 +1,6 @@
-from setuptools import setup, find_packages
+from setuptools import find_packages, setup
+
+REQUIREMENTS = open("requirements.txt").read().splitlines()
 
 setup(name='berglas_python',
       version='0.3.4',
@@ -10,7 +12,7 @@ setup(name='berglas_python',
       packages=find_packages(exclude=['tests','examples']),
       long_description=open("README.md", "r").read(),
       long_description_content_type="text/markdown",
-      install_requires=["google-cloud-storage","google-cloud-kms","cryptography"],
+      install_requires=REQUIREMENTS,
       py_modules=["berglas_python"],
       zip_safe=False,
       classifiers=[
