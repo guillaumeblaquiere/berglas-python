@@ -1,4 +1,5 @@
 /.idea/
 /venv/
 /dist/
+/build/
 /berglas_python.egg-info/
