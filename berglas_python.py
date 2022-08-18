@@ -3,7 +3,7 @@ import logging
 import os
 
 from cryptography.hazmat.backends import default_backend
-from google.cloud import storage, kms
+from google.cloud import storage, kms_v1
 from google.api_core import iam
 
 from cryptography.hazmat.primitives.ciphers import (
@@ -219,7 +219,7 @@ def Resolve(project_id: str, env_var_value: str) -> str:
     _validate_project_id(project_id)
 
     gcs_client = storage.Client(project=project_id)
-    kms_client = kms.KeyManagementServiceClient()
+    kms_client = kms_v1.KeyManagementServiceClient()
 
     bucket, object_name = _get_bucket_object(env_var_value)
 
@@ -235,8 +235,14 @@ def Resolve(project_id: str, env_var_value: str) -> str:
     decoded_data                 = base64.b64decode(blob_content_splited[1])
 
     # Decrypt the encoded Data Encryption Key (DEK)
-    kms_resp = kms_client.decrypt(name=crypto_key_path, ciphertext=decoded_data_encryption_key,
-                                  additional_authenticated_data=str2b(object_name))
+    # Initialize request argument(s)
+    request = kms_v1.DecryptRequest(
+        name=crypto_key_path,
+        ciphertext=decoded_data_encryption_key,
+        additional_authenticated_data=str2b(object_name)
+    )
+
+    kms_resp = kms_client.decrypt(request=request)
     data_encryption_key = kms_resp.plaintext
 
     return _envelope_decrypt(data_encryption_key, decoded_data)
@@ -269,7 +275,7 @@ def Encrypt(project_id: str, env_var_value: str, plaintext: str,
     bucket_name, object_name = _get_bucket_object(env_var_value)
 
     gcs_client = storage.Client(project=project_id)
-    kms_client = kms.KeyManagementServiceClient()
+    kms_client = kms_v1.KeyManagementServiceClient()
 
     data_encryption_key, ciphertext = _envelope_encrypt(str2b(plaintext))
 
